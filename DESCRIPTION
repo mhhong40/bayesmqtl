@@ -1,0 +1,20 @@
+Package: bayesmqtl
+Title: Beta Mixture Model-Based mQTL Mapping
+Version: 0.0.0.9000
+Authors@R: 
+    person("Melody", "Hong", , "mhhong@mit.edu", role = c("aut", "cre"))
+Description: An mQTL mapper specifically tailored to weak effects. The model first assumes that methylation distributions can be represented by two-component Beta mixtures, and then maps SNP associations through multivariate Bayesian latent class membership regressions.
+License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
+    license
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Imports: 
+    matrixStats,
+    maxLik
+Depends: 
+    R (>= 3.5)
+LazyData: true
