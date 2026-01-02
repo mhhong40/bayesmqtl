@@ -48,15 +48,21 @@ colnames(mm) <- cpgs
 # densityPlot(mm, sampGroups = NULL) # just to visualize
 saveRDS(mm, file = "TCGA_BRCA_final_methylation_matrix.RDS")
 
+library(maxLik)
 devtools::load_all()
 
 ## Behaves well on toy dataset
-# Y_1 <- c(rbeta(100, 1, 5), rbeta(150, 10, 2))
-# Y_2 <- c(rbeta(160, 4, 8), rbeta(90, 20, 3))
-# Y_new <- as.matrix(cbind(Y_1, Y_2)) # d = 2 for debugging stuff
-# fit_results <- fit_mixture_model_(Y_new, parameterization = "shape", tol = 0.0001)
+Y_1 <- c(rbeta(100, 1, 5), rbeta(150, 10, 2))
+Y_2 <- c(rbeta(160, 4, 8), rbeta(90, 20, 3))
+Y_new <- as.matrix(cbind(Y_1, Y_2)) # d = 2 for debugging stuff
+fit_results <- fit_mixture_model_(Y_new, parameterization = "shape", tol = 0.0001)
 
-## Issues arise when testing on real dataset, though
-# I think an NA is called somewhere because a value is out of range?
-mm <- data(mm)
-fit_mixture_model_(mm, parameterization = "shape") # The mm data object can just be loaded into the environment
+mm <- data(mm) # not working for some reason idk
+
+mm <- readRDS("TCGA_BRCA_final_methylation_matrix.RDS")
+
+mm_sample <- mm[, c(1:2)]
+fit_mm_sample <- fit_mixture_model_(mm_sample, parameterization = "shape")
+
+mm_sample_2 <- mm[, c(1:5)]
+runtime <- system.time(fit_mm_sample_2 <- fit_mixture_model_(mm_sample_2, parameterization = "shape"))

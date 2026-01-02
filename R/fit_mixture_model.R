@@ -8,11 +8,15 @@
 #' @param parameterization A string that is either "shape" or "md." Specifying "shape" performs the model fitting based on the alpha/beta shape parameterization of the Beta distribution, while md performs that based on the mean/dispersion parameterization.
 #' @param ... More stuff here.
 #' @param tol Tolerance value for the difference in the previous and current iterations' log-likelihood values that determines when the EM algorithm should stop. Default is 0.1.
-fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape", "md"), tol = 0.1) {
+#' @param maxit Maximum allowed number of iterations for the EM algorithm before it force quits.
+fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape", "md"), tol = 0.1, maxit = 1000) {
 
-  # Gather data parameters
   n <- nrow(Y)
   d <- ncol(Y)
+
+  # Control over numerical under/overflow
+  eps <- 1e-6
+  Y <- pmin(pmax(Y, eps), 1 - eps)
 
   cutoffs <- matrixStats::colQuantiles(Y, probs = threshold)
 
@@ -47,26 +51,34 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape",
     iteration_results <- list()
     iteration_results[[iteration]] <- result
 
-    while(any(abs(current_LL - prev_LL) > tol)) { # Runs the algorithm until all models have reached convergence
+    # Only run EM algorithm on CpGs that have not yet converged
+    not_converged <- rep(TRUE, d)
+
+    while(length(not_converged) > 0 | iteration > maxit) { # Runs the algorithm until all models have reached convergence
 
       iteration <- iteration + 1
 
       # E-step
-      mix_params <- e_step_(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1)
+      mix_params_current <- e_step_(Y[, not_converged, drop = FALSE], mix_params[not_converged], alpha_0[not_converged], beta_0[not_converged], alpha_1[not_converged], beta_1[not_converged])
 
       # M-step
-      updated_shape_params <- m_step_(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) # need to create shape_params vector, accessing methods
+      updated_shape_params <- m_step_(Y[, not_converged, drop = FALSE], mix_params[not_converged], alpha_0[not_converged], beta_0[not_converged], alpha_1[not_converged], beta_1[not_converged]) # need to create shape_params vector, accessing methods
 
-      alpha_0 <- updated_shape_params[, 1]
-      beta_0 <- updated_shape_params[, 2]
-      alpha_1 <- updated_shape_params[, 3]
-      beta_1 <- updated_shape_params[, 4]
+      mix_params[not_converged] <- mix_params_current
+      alpha_0[not_converged] <- updated_shape_params[, 1]
+      beta_0[not_converged] <- updated_shape_params[, 2]
+      alpha_1[not_converged] <- updated_shape_params[, 3]
+      beta_1[not_converged] <- updated_shape_params[, 4]
 
       prev_LL <- current_LL
       current_LL <- colSums(bm_density_(Y, alpha_0, beta_0, alpha_1, beta_1, mix_params, log = TRUE)) # With updated parameters
 
+      # Update the indices of CpGs that still have not converged
+      not_converged <- abs(current_LL - prev_LL) > tol
+      not_converged <- which(not_converged)
+
       # Storing step results
-      result <- cbind(mix_params, updated_shape_params, current_LL)
+      result <- cbind(mix_params, alpha_0, beta_0, alpha_1, beta_1, current_LL)
       iteration_results[[iteration]] <- result
     }
 
@@ -86,33 +98,46 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape",
   }
 }
 
-# Beta density/log-likelihood of entire model
+# Beta density/log-likelihood of each mixture model
 bm_density_ <- function(Y, alpha_0, beta_0, alpha_1, beta_1, mix_params, log = TRUE) {
 
-  dens <- (1 - mix_params)*dbeta(Y, alpha_0, beta_0) + mix_params*dbeta(Y, alpha_1, beta_1)
+  # Log-sum-exp implementation
+  log_lower <- log((1 - mix_params)) + dbeta(Y, alpha_0, beta_0, log = TRUE)
+  log_upper <- log(mix_params) + dbeta(Y, alpha_1, beta_1, log = TRUE) # matrices of size n x d
+
+  m <- pmax(log_lower, log_upper)
+  log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
+
   if (log) {
 
-    return (log(dens))
+    return (log_marginal)
   }
   else {
 
-    return (dens)
+    return (exp(log_marginal))
   }
 }
 
-# E step for shape parameterization
+# E step for shape parametrization
 e_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
   n <- nrow(Y)
 
-  # Note that lower_responsibility = 1 - upper_responsibility
-  upper_responsibility <- mix_params*dbeta(Y, alpha_1, beta_1) / ((1 - mix_params)*dbeta(Y, alpha_0, beta_0) + mix_params*dbeta(Y, alpha_1, beta_1))
-  mix_params <- 1/n * colSums(upper_responsibility)
+  # Log-sum-exp implementation
+  log_lower <- log((1 - mix_params)) + dbeta(Y, alpha_0, beta_0, log = TRUE)
+  log_upper <- log(mix_params) + dbeta(Y, alpha_1, beta_1, log = TRUE)
+
+  m <- pmax(log_lower, log_upper)
+  log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
+
+  upper_responsibility <- exp(log_upper - log_marginal) # Note that lower_responsibility = 1 - upper_responsibility
+  mix_params <- 1/n * colSums(upper_responsibility) # Desired vector of length d
+
   return(mix_params)
 }
 
 # M step for shape parameterization
-# Reminder that mix_params is held constant for each run of maxLik (inner loop of EM algorithm)
+# Reminder that all elements of mix_params are held constant for each run of maxLik (inner loop of EM algorithm)
 m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
   d <- ncol(Y)
@@ -129,7 +154,7 @@ m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
   # Likelihood for an individual mixture model
   # Data is called x (not Y) so as to be compatible with maxLik()
-  individual_likelihood_ <- function(params, x) {
+  individual_likelihood_ <- function(params, x, mix_param_t) {
 
     alpha_0 <- params[1] # I personally don't like the numerical indexing, but am too lazy to make params a named numeric right now
     beta_0 <- params[2]
@@ -140,11 +165,11 @@ m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
       return(NA)
     }
-    return(bm_density_(x, alpha_0, beta_0, alpha_1, beta_1, mix_params, log = TRUE)) # for the future, might want to consider switching to log-sum-exp implementation for greater numerical stability
+    return(bm_density_(x, alpha_0, beta_0, alpha_1, beta_1, mix_param_t, log = TRUE)) # All scalar inputs to bm_density_()
   }
 
   # Runs maxLik() on an individual mixture model
-  individual_fit_ <- function(start_row, Y_col) {
+  individual_fit_ <- function(start_row, Y_col, mix_param_t) {
 
     alpha_0 <- as.numeric(start_row["alpha_0"])
     beta_0 <- as.numeric(start_row["beta_0"])
@@ -153,7 +178,10 @@ m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
     individual_start <- c(alpha_0, beta_0, alpha_1, beta_1)
 
-    output <- maxLik(logLik = individual_likelihood_, start = individual_start, x = Y_col)
+    output <- maxLik(logLik = individual_likelihood_,
+                     start = individual_start,
+                     x = Y_col,
+                     mix_param_t = mix_param_t)
 
     new_params <- output$estimate
     names(new_params) <- c("alpha_0", "beta_0", "alpha_1", "beta_1")
@@ -164,6 +192,7 @@ m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
   updated_shape_params <- mapply(FUN = individual_fit_,
                                  start_row = start_list,
                                  Y_col = as.data.frame(Y),
+                                 mix_param_t = mix_params,
                                  SIMPLIFY = FALSE)
   updated_shape_params <- unlist(updated_shape_params)
   updated_shape_params <- t(matrix(updated_shape_params, nrow = 4, ncol = d))
