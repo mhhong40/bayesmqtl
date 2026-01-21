@@ -49,6 +49,7 @@ colnames(mm) <- cpgs
 saveRDS(mm, file = "TCGA_BRCA_final_methylation_matrix.RDS")
 
 library(maxLik)
+library(profvis) # profile code
 devtools::load_all()
 
 ## Behaves well on toy dataset
@@ -63,6 +64,10 @@ mm <- readRDS("TCGA_BRCA_final_methylation_matrix.RDS")
 
 mm_sample <- mm[, c(1:2)]
 fit_mm_sample <- fit_mixture_model_(mm_sample, parameterization = "shape")
+labels_time <- system.time(fit_mixture_model_(mm_sample, parameterization = "shape"))
+
+fit_mm_sample_no_labels <- fit_mixture_model_(mm_sample, parameterization = "shape")
+no_labels_time <- system.time(fit_mixture_model_(mm_sample, parameterization = "shape"))
 
 mm_sample_2 <- mm[, c(1:5)]
 runtime <- system.time(fit_mm_sample_2 <- fit_mixture_model_(mm_sample_2, parameterization = "shape"))

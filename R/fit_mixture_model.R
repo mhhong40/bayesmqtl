@@ -5,11 +5,11 @@
 #' E and M-steps are both coded from scratch to facilitate parallel execution.
 #' @param Y The methylation data matrix of size n x d, where n = the number of samples and d = the number of methylation sites.
 #' @param threshold A value ranging from 0 to 1 (exclusive) indicating how the data distribution should first be split for parameter initialization. Default is 0.5 (data is split into upper and lower halves).
-#' @param parameterization A string that is either "shape" or "md." Specifying "shape" performs the model fitting based on the alpha/beta shape parameterization of the Beta distribution, while md performs that based on the mean/dispersion parameterization.
+#' @param parametrization A string that is either "shape" or "md." Specifying "shape" performs the model fitting based on the alpha/beta shape parametrization of the Beta distribution, while md performs that based on the mean/dispersion parametrization.
 #' @param ... More stuff here.
 #' @param tol Tolerance value for the difference in the previous and current iterations' log-likelihood values that determines when the EM algorithm should stop. Default is 0.1.
 #' @param maxit Maximum allowed number of iterations for the EM algorithm before it force quits.
-fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape", "md"), tol = 0.1, maxit = 1000) {
+fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", "md"), tol = 0.1, maxit = 1000) {
 
   n <- nrow(Y)
   d <- ncol(Y)
@@ -31,7 +31,7 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape",
   m_u <- colMeans(upper)
   v_u <- matrixStats::colVars(upper)
 
-  if (parameterization == "shape") {
+  if (parametrization == "shape") {
 
     # Initialize model parameters (method of moments initialization for shape parameters)
     mix_params <- rep(threshold, d)
@@ -54,9 +54,17 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape",
     # Only run EM algorithm on CpGs that have not yet converged
     not_converged <- rep(TRUE, d)
 
-    while(length(not_converged) > 0 | iteration > maxit) { # Runs the algorithm until all models have reached convergence
+    while(length(not_converged) > 0) { # Runs the algorithm until all models have reached convergence
 
+      if(iteration == maxit) {
+
+        paste0("Warning: the maximum allowed number of iterations (", maxit, ") was reached before the EM algorithm reached convergence on all CpGs. ",
+               "Consider first filtering out particularly low-quality datasets and/or choosing a greater tolerance.")
+
+        return(iteration_results)
+      }
       iteration <- iteration + 1
+      start_time <- proc.time()[[3]]
 
       # E-step
       mix_params_current <- e_step_(Y[, not_converged, drop = FALSE], mix_params[not_converged], alpha_0[not_converged], beta_0[not_converged], alpha_1[not_converged], beta_1[not_converged])
@@ -73,28 +81,31 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parameterization = c("shape",
       prev_LL <- current_LL
       current_LL <- colSums(bm_density_(Y, alpha_0, beta_0, alpha_1, beta_1, mix_params, log = TRUE)) # With updated parameters
 
+      end_time <- proc.time()[[3]]
+      time_elapsed <- end_time - start_time
+
       # Update the indices of CpGs that still have not converged
       not_converged <- abs(current_LL - prev_LL) > tol
       not_converged <- which(not_converged)
 
-      # Storing step results
+      # Storing step results and runtime
       result <- cbind(mix_params, alpha_0, beta_0, alpha_1, beta_1, current_LL)
-      iteration_results[[iteration]] <- result
+      iteration_results[[iteration]] <- list(result, time_elapsed)
+      names(iteration_results[[iteration]]) <- c("param_estimates", "time_elapsed") # To access runtimes only, use unlist(sapply(fit_results, function(x) x[2]))
     }
-
     return(iteration_results)
   }
-  else if (parameterization == "md") {
+  else if (parametrization == "md") {
 
-    # TO DO: code algorithm for mean/dispersion parameterization
+    # TO DO: code algorithm for mean/dispersion parametrization
 
   }
   else {
 
-    stop(paste0("Error: valid parameterization not provided for the EM algorithm. Please ensure that ",
-                "your parameterization is either 'shape' or 'md' to indicate whether the model fitting ",
-                "should be performed using the alpha/beta shape parameterization or mean/dispersion ",
-                "parameterization, respectively."))
+    stop(paste0("Error: valid parametrization not provided for the EM algorithm. Please ensure that ",
+                "your parametrization is either 'shape' or 'md' to indicate whether the model fitting ",
+                "should be performed using the alpha/beta shape parametrization or mean/dispersion ",
+                "parametrization, respectively."))
   }
 }
 
@@ -136,7 +147,7 @@ e_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
   return(mix_params)
 }
 
-# M step for shape parameterization
+# M step for shape parametrization
 # Reminder that all elements of mix_params are held constant for each run of maxLik (inner loop of EM algorithm)
 m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
 
@@ -196,6 +207,9 @@ m_step_ <- function(Y, mix_params, alpha_0, beta_0, alpha_1, beta_1) {
                                  SIMPLIFY = FALSE)
   updated_shape_params <- unlist(updated_shape_params)
   updated_shape_params <- t(matrix(updated_shape_params, nrow = 4, ncol = d))
+
+  # TO DO: Enforce labels
+  updated_shape_params <- enforce_labels_(updated_shape_params) # function is in utils.R
 
   colnames(updated_shape_params) <- c("alpha_0", "beta_0", "alpha_1", "beta_1")
   rownames(updated_shape_params) <- colnames(Y)
