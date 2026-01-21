@@ -835,6 +835,28 @@ hist(all_hard_runtimes, breaks = 20,
      xlab = NA)
 dev.off()
 
+# Fig 1.5: Examine distribution of total runtimes across all datasets of varying values of n
+runtimes_250 <- c(unlist(all_easy_runtimes[21:40]), unlist(all_med_runtimes[21:40]), unlist(all_hard_runtimes[21:40]))
+runtimes_500 <- c(unlist(all_easy_runtimes[41:60]), unlist(all_med_runtimes[41:60]), unlist(all_hard_runtimes[41:60]))
+runtimes_750 <- c(unlist(all_easy_runtimes[61:80]), unlist(all_med_runtimes[61:80]), unlist(all_hard_runtimes[61:80]))
+runtimes_1000 <- c(unlist(all_easy_runtimes[1:20]), unlist(all_med_runtimes[1:20]), unlist(all_hard_runtimes[1:20]))
+
+pdf("Figure1.5.pdf", width = 7, height = 6)
+par(mfrow = c(2, 2))
+hist(runtimes_250, breaks = 20,
+     main = "All n = 250",
+     xlab = "Total runtime (s)")
+hist(runtimes_500, breaks = 20,
+     main = "All n = 500",
+     xlab = "Total runtime (s)")
+hist(runtimes_750, breaks = 20,
+     main = "All n = 750",
+     xlab = "Total runtime (s)")
+hist(runtimes_1000, breaks = 20,
+     main = "All n = 1000",
+     xlab = "Total runtime (s)")
+dev.off()
+
 # Fig 2: Examine distribution of number of iterations until convergence across all datasets of varying difficulty (easy, medium, hard)
 all_easy_it_nums <- unlist(lapply(all_easy_results, total_iterations_))
 all_med_it_nums <- unlist(lapply(all_med_results, total_iterations_))
@@ -851,6 +873,28 @@ hist(all_med_it_nums, breaks = 20,
 hist(all_hard_it_nums, breaks = 20,
      main = "All hard",
      xlab = NA)
+dev.off()
+
+# Fig 2.5: Do the same but with varied n
+it_nums_250 <- c(all_easy_it_nums[21:40], all_med_it_nums[21:40], all_hard_it_nums[21:40])
+it_nums_500 <- c(all_easy_it_nums[41:60], all_med_it_nums[41:60], all_hard_it_nums[41:60])
+it_nums_750 <- c(all_easy_it_nums[61:80], all_med_it_nums[61:80], all_hard_it_nums[61:80])
+it_nums_1000 <- c(all_easy_it_nums[1:20], all_med_it_nums[1:20], all_hard_it_nums[1:20])
+
+pdf("Figure2.5.pdf", width = 7, height = 6)
+par(mfrow = c(2, 2))
+hist(it_nums_250, breaks = 20,
+     main = "All n = 250",
+     xlab = "Final number of iterations")
+hist(it_nums_500, breaks = 20,
+     main = "All n = 500",
+     xlab = "Final number of iterations")
+hist(it_nums_750, breaks = 20,
+     main = "All n = 750",
+     xlab = "Final number of iterations")
+hist(it_nums_1000, breaks = 20,
+     main = "All n = 1000",
+     xlab = "Final number of iterations")
 dev.off()
 
 # Figure 3: Cumulative sum plots of runtime versus iteration number
