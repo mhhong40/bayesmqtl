@@ -6,13 +6,16 @@
 #' @param Y The methylation data matrix of size n x d, where n = the number of samples and d = the number of methylation sites.
 #' @param threshold A value ranging from 0 to 1 (exclusive) indicating how the data distribution should first be split for parameter initialization. Default is 0.5 (data is split into upper and lower halves).
 #' @param parametrization A string that is either "shape" or "md." Specifying "shape" performs the model fitting based on the alpha/beta shape parametrization of the Beta distribution, while md performs that based on the mean/dispersion parametrization.
-#' @param ... More stuff here.
 #' @param tol Tolerance value for the difference in the previous and current iterations' log-likelihood values that determines when the EM algorithm should stop. Default is 0.1.
 #' @param maxit Maximum allowed number of iterations for the EM algorithm before it force quits.
 #' @param obj_param Indicates which of the five mixture model parameters is sought to be estimated. If supplied with "all," then the true_params argument should be supplied with NULL (the EM algorithm estimates all parameters entirely from scratch).
 #' @param true_params A list of values supplying the true values of all other model parameters aside from that supplied to obj_param. List elements must have the model parameter names; for instance, if obj_param == "pi", then true_params contains alpha_0, beta_0, etc.
+#' @param sens_param (Assumes that obj_param == "all.") If not "none," specifies the shape parameter for which various initializations are being supplied for sensitivity analysis. If "none," the default method-of-moments initialization is used for all shape parameters.
+#' @param sens_param_val A vector containing initial values for the shape parameter specified by the sens_param argument.
 fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", "md"), tol = 0.1, maxit = 1000,
-                               obj_param = c("all", "pi", "alpha_0", "beta_0", "alpha_1", "beta_1"), true_params) {
+                               obj_param = c("all", "pi", "alpha_0", "beta_0", "alpha_1", "beta_1"),
+                               sens_param = c("none", "alpha_0", "beta_0", "alpha_1", "beta_1"),
+                               true_params, sens_param_val) {
 
   n <- nrow(Y)
   d <- ncol(Y)
@@ -40,10 +43,43 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
     if(obj_param == "all") {
 
       pi <- rep(threshold, d)
-      alpha_0 <- m_l * (m_l * (1 - m_l) / v_l - 1)
-      beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
-      alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
-      beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+
+      # Check if any shape parameters have initializations directly supplied to them for sensitivity analysis
+      if(sens_param == "none") {
+
+        alpha_0 <- m_l * (m_l * (1 - m_l) / v_l - 1)
+        beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
+        alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
+        beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+      }
+      else if(sens_param == "alpha_0") {
+
+        alpha_0 <- sens_param_val
+        beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
+        alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
+        beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+      }
+      else if(sens_param == "beta_0") {
+
+        alpha_0 <- m_l * (m_l * (1 - m_l) / v_l - 1)
+        beta_0 <- sens_param_val
+        alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
+        beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+      }
+      else if(sens_param == "alpha_1") {
+
+        alpha_0 <- m_l * (m_l * (1 - m_l) / v_l - 1)
+        beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
+        alpha_1 <- sens_param_val
+        beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+      }
+      else {
+
+        alpha_0 <- m_l * (m_l * (1 - m_l) / v_l - 1)
+        beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
+        alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
+        beta_1 <- sens_param_val
+      }
     }
     else if(obj_param == "pi") {
 
@@ -182,38 +218,14 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
   }
 }
 
-# Beta density/log-likelihood of each mixture model
-# Deprecated?
-bm_density_ <- function(Y, alpha_0, beta_0, alpha_1, beta_1, pi, log = TRUE) {
-
-  # Log-sum-exp implementation
-  log_lower <- log((1 - pi)) + dbeta(Y, alpha_0, beta_0, log = TRUE)
-  log_upper <- log(pi) + dbeta(Y, alpha_1, beta_1, log = TRUE) # matrices of size n x d
-
-  m <- pmax(log_lower, log_upper)
-  log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
-
-  if (log) {
-
-    return (log_marginal)
-  }
-  else {
-
-    return (exp(log_marginal))
-  }
-}
-
 # E step for shape parametrization
 e_step_ <- function(Y, pi, alpha_0, beta_0, alpha_1, beta_1) {
 
   n <- nrow(Y)
 
   # Log-sum-exp implementation
+  log_lower <- sweep(dbeta(Y, alpha_0, beta_0, log = TRUE), 2, log1p(-pi), "+") # log1p(-pi) for added numerical stability
   log_upper <- sweep(dbeta(Y, alpha_1, beta_1, log = TRUE), 2, log(pi), "+")
-  log_lower <- sweep(dbeta(Y, alpha_0, beta_0, log = TRUE), 2, log(1 - pi), "+")
-
-  # log_lower <- log((1 - pi)) + dbeta(Y, alpha_0, beta_0, log = TRUE)
-  # log_upper <- log(pi) + dbeta(Y, alpha_1, beta_1, log = TRUE)
 
   m <- pmax(log_lower, log_upper)
   log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
@@ -221,6 +233,39 @@ e_step_ <- function(Y, pi, alpha_0, beta_0, alpha_1, beta_1) {
   upper_responsibility <- exp(log_upper - log_marginal) # Note that lower_responsibility = 1 - upper_responsibility
 
   return(upper_responsibility) # This is a matrix of size n x d
+}
+
+# Beta density/log-likelihood of each mixture model
+bm_density_ <- function(Y, alpha_0, beta_0, alpha_1, beta_1, pi, log = TRUE) {
+
+  # Log-sum-exp implementation
+  log_lower <- sweep(dbeta(Y, alpha_0, beta_0, log = TRUE), 2, log1p(-pi), "+") # log1p(-pi) for added numerical stability
+  log_upper <- sweep(dbeta(Y, alpha_1, beta_1, log = TRUE), 2, log(pi), "+")
+
+  m <- pmax(log_lower, log_upper)
+  log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
+
+  if (log) {
+
+    return(log_marginal)
+  }
+  else {
+
+    return (exp(log_marginal))
+  }
+}
+
+# Operates on one CpG and is used as input to individual_likelihood_(), hence the data being passed as x
+bm_LL_ <- function(x, alpha_0, beta_0, alpha_1, beta_1, pi_t) {
+
+  # Log-sum-exp implementation
+  log_lower <- log1p(-pi_t) + dbeta(x, alpha_0, beta_0, log = TRUE)
+  log_upper <- log(pi_t) + dbeta(x, alpha_1, beta_1, log = TRUE)
+
+  m <- pmax(log_lower, log_upper)
+  log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
+
+  return(sum(log_marginal))
 }
 
 # M step for shape parametrization
@@ -255,7 +300,8 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
 
       return(NA)
     }
-    return(sum(log( (1 - pi_t)*dbeta(x, alpha_0, beta_0) + pi_t*dbeta(x, alpha_1, beta_1) ))) # This isn't numerically stable, though
+    return(bm_LL_(x, alpha_0, beta_0, alpha_1, beta_1, pi_t))
+    # return(sum(log((1 - pi_t)*dbeta(x, alpha_0, beta_0) + pi_t*dbeta(x, alpha_1, beta_1)))) <- potentially unstable
   }
 
   if(obj_param == "pi" | obj_param == "all") {
