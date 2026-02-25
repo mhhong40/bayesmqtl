@@ -15,7 +15,7 @@
 fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", "md"), tol = 0.1, maxit = 1000,
                                obj_param = c("all", "pi", "alpha_0", "beta_0", "alpha_1", "beta_1"),
                                sens_param = c("none", "alpha_0", "beta_0", "alpha_1", "beta_1"),
-                               true_params, sens_param_val) {
+                               true_params, sens_param_val, extract_initials = FALSE) {
 
   n <- nrow(Y)
   d <- ncol(Y)
@@ -24,25 +24,43 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
   eps <- 1e-6
   Y <- pmin(pmax(Y, eps), 1 - eps)
 
-  cutoffs <- matrixStats::colQuantiles(Y, probs = threshold)
+  # Use k-means to initialize components
+  p_kmeans_ <- function(x) {
 
-  lower_mask <- sweep(Y, 2, cutoffs, '>=')
-  lower <- Y * (1 - lower_mask)
-  upper <- Y * lower_mask
+    p_km_fit <- kmeans(x, centers = 2, iter.max = 20)
+    return(p_km_fit$cluster)
+  }
+
+  Y_clusts <- mapply(p_kmeans_,
+                     x = as.data.frame(Y))
+
+  # cutoffs <- matrixStats::colQuantiles(Y, probs = threshold)
+
+  lower_elements <- sweep(Y_clusts, 2, 1, '==')
+
+  lower <- Y * lower_elements
+  lower <- replace(lower, lower == 0, NA)
+
+  upper <- Y * (1 - lower_elements)
+  upper <- replace(upper, upper == 0, NA)
 
   # Initialize model parameters (method of moments initialization)
-  m_l <- matrixStats::colMeans2(lower)
-  v_l <- matrixStats::colVars(lower)
+  m_l <- matrixStats::colMeans2(lower, na.rm = TRUE)
+  v_l <- matrixStats::colVars(lower, na.rm = TRUE)
 
-  m_u <- matrixStats::colMeans2(upper)
-  v_u <- matrixStats::colVars(upper)
+  m_u <- matrixStats::colMeans2(upper, na.rm = TRUE)
+  v_u <- matrixStats::colVars(upper, na.rm = TRUE)
 
   if (parametrization == "shape") {
 
     # Initialize model parameters (method of moments initialization for shape parameters)
     if(obj_param == "all") {
 
-      pi <- rep(threshold, d)
+      n_upper <- lapply(split(Y_clusts, col(Y_clusts)), function(x) {return(length(which(x == 1)))})
+      n_upper <- unlist(n_upper)
+      pi <- n_upper / n
+
+      # pi <- rep(threshold, d)
 
       # Check if any shape parameters have initializations directly supplied to them for sensitivity analysis
       if(sens_param == "none") {
@@ -130,6 +148,11 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
     iteration <- 1
     iteration_results <- list()
     iteration_results[[iteration]] <- result
+
+    if(extract_initials == TRUE) {
+
+      return(result) # For visualizing method-of-moments initializations
+    }
 
     # Only run EM algorithm on CpGs that have not yet converged
     not_converged <- rep(TRUE, d)
@@ -268,6 +291,28 @@ bm_LL_ <- function(x, alpha_0, beta_0, alpha_1, beta_1, pi_t) {
   return(sum(log_marginal))
 }
 
+# To supply analytic gradient to maxLik()
+grad_LL_ <- function(params, lx, l1x, resp) {
+
+  alpha_0 <- params[1]
+  beta_0 <- params[2]
+  alpha_1 <- params[3]
+  beta_1 <- params[4]
+
+  sum_l <- sum(1 - resp)
+  sum_u <- sum(resp)
+
+  # Equations for partial derivatives of the LL WRT alphas and betas
+  # Might need sums wrapping around all these? check
+  partial_alpha_0 <- sum((1 - resp)*lx) - sum_l*(digamma(alpha_0) - digamma(alpha_0 + beta_0))
+  partial_beta_0 <- sum((1 - resp)*l1x) - sum_l*(digamma(beta_0) - digamma(alpha_0 + beta_0))
+
+  partial_alpha_1 <- sum(resp*lx) - sum_u*(digamma(alpha_1) - digamma(alpha_1 + beta_1))
+  partial_beta_1 <- sum(resp*l1x) - sum_u*(digamma(beta_1) - digamma(alpha_1 + beta_1))
+
+  return(c(partial_alpha_0, partial_beta_0, partial_alpha_1, partial_beta_1))
+}
+
 # M step for shape parametrization
 # When obj_param is specified to be one of the shape parameters, only obj_param is overwritten by MLE; all others are fixed
 # The resp argument is only used when either pi or all parameters are the objective
@@ -316,7 +361,7 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
   }
 
   # Runs maxLik() on an individual mixture model when the objective parameter is not pi
-  individual_fit_ <- function(start_row, Y_col, pi_t, obj_param = obj_param) {
+  individual_fit_ <- function(start_row, Y_col, pi_t, obj_param = obj_param, resp) {
 
     alpha_0 <- as.numeric(start_row["alpha_0"])
     beta_0 <- as.numeric(start_row["beta_0"])
@@ -328,10 +373,18 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
 
     if(obj_param == "all") {
 
-      output <- maxLik(logLik = individual_likelihood_,
-                       start = individual_start,
-                       x = Y_col,
-                       pi_t = pi_t) # None of the shape parameters are fixed
+#      output <- maxLik(logLik = individual_likelihood_,
+#                       start = individual_start,
+#                       x = Y_col,
+#                       pi_t = pi_t) # None of the shape parameters are fixed
+
+      # Uses analytic gradient
+      lx  <- log(Y_col)
+      l1x <- log1p(-Y_col)
+
+      output <- maxLik(logLik = function(params) individual_likelihood_(params, Y_col, pi_t),
+                       grad = function(params) grad_LL_(params, lx, l1x, resp),
+                       start = individual_start)
     }
     else if(obj_param == "alpha_0") {
 
@@ -352,10 +405,10 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
 
     if(exists("fixed")) {
 
-      output <- maxLik(logLik = individual_likelihood_,
-                       start = individual_start,
-                       x = Y_col,
-                       pi_t = pi_t, fixed = fixed)
+      output <- maxLik(logLik = function(params) individual_likelihood_(params, Y_col, pi_t),
+                       grad = function(params) grad_LL_(params, Y_col, resp),
+                       start = individual_start, fixed = fixed)
+
     }
 
     new_params <- output$estimate
@@ -368,12 +421,12 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
                                  start_row = start_list,
                                  Y_col = as.data.frame(Y),
                                  pi_t = pi,
+                                 resp = as.data.frame(resp),
                                  obj_param = rep(obj_param, d),
                                  SIMPLIFY = FALSE)
   updated_shape_params <- unlist(updated_shape_params)
   updated_shape_params <- t(matrix(updated_shape_params, nrow = 4, ncol = d))
 
-  # TO DO: Enforce labels
   updated_shape_params <- enforce_labels_(updated_shape_params) # function is in utils.R
   updated_params <- cbind(pi, updated_shape_params)
 
