@@ -12,10 +12,14 @@
 #' @param true_params A list of values supplying the true values of all other model parameters aside from that supplied to obj_param. List elements must have the model parameter names; for instance, if obj_param == "pi", then true_params contains alpha_0, beta_0, etc.
 #' @param sens_param (Assumes that obj_param == "all.") If not "none," specifies the shape parameter for which various initializations are being supplied for sensitivity analysis. If "none," the default method-of-moments initialization is used for all shape parameters.
 #' @param sens_param_val A vector containing initial values for the shape parameter specified by the sens_param argument.
+#' @param introduce_noise Logical; if TRUE, introduces random (Gaussian) noise to initial shape parameter estimates.
+#' @param extract_initials Logical; if TRUE, only returns the mixture proportion/shape parameter estimates from the k-means initialization.
+#' @param digamma_approx Logical; if TRUE, uses approximate closed-form parameter estimates during the M-step as used by Majumdar et al. (2024) [cit needed]
 fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", "md"), tol = 0.1, maxit = 1000,
                                obj_param = c("all", "pi", "alpha_0", "beta_0", "alpha_1", "beta_1"),
                                sens_param = c("none", "alpha_0", "beta_0", "alpha_1", "beta_1"),
-                               true_params, sens_param_val, extract_initials = FALSE) {
+                               true_params, sens_param_val,
+                               introduce_noise = FALSE, extract_initials = FALSE, digamma_approx = FALSE) {
 
   n <- nrow(Y)
   d <- ncol(Y)
@@ -51,6 +55,19 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
   m_u <- matrixStats::colMeans2(upper, na.rm = TRUE)
   v_u <- matrixStats::colVars(upper, na.rm = TRUE)
 
+  if(any(m_l > m_u)) { # Make sure components are correctly labeled before entering EM algorithm
+
+    swaps <- which(m_l > m_u)
+
+    temp1 <- m_l[swaps]
+    m_l[swaps] <- m_u[swaps]
+    m_u[swaps] <- temp1
+
+    temp2 <- v_l[swaps]
+    v_l[swaps] <- v_u[swaps]
+    v_u[swaps] <- temp2
+  }
+
   if (parametrization == "shape") {
 
     # Initialize model parameters (method of moments initialization for shape parameters)
@@ -69,6 +86,16 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
         beta_0 <- (1 - m_l) * (m_l * (1 - m_l) / v_l - 1)
         alpha_1 <- m_u * (m_u * (1 - m_u) / v_u - 1)
         beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
+
+        if(introduce_noise == TRUE) {
+
+          pi <- introduce_noise_(pi)
+          alpha_0 <- introduce_noise_(alpha_0)
+          beta_0 <- introduce_noise_(beta_0)
+          alpha_1 <- introduce_noise_(alpha_1)
+          beta_1 <- introduce_noise_(beta_1)
+        }
+
       }
       else if(sens_param == "alpha_0") {
 
@@ -201,7 +228,7 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
        updated_params <- m_step_(Y[, not_converged, drop = FALSE], resp = resp[, not_converged, drop = FALSE],
                                  alpha_0 = alpha_0[not_converged], beta_0 = beta_0[not_converged],
                                  alpha_1 = alpha_1[not_converged], beta_1 = beta_1[not_converged],
-                                 obj_param = obj_param)
+                                 obj_param = obj_param, digamma_approx = digamma_approx)
       }
 
       pi[not_converged] <- updated_params[, 1]
@@ -303,7 +330,6 @@ grad_LL_ <- function(params, lx, l1x, resp) {
   sum_u <- sum(resp)
 
   # Equations for partial derivatives of the LL WRT alphas and betas
-  # Might need sums wrapping around all these? check
   partial_alpha_0 <- sum((1 - resp)*lx) - sum_l*(digamma(alpha_0) - digamma(alpha_0 + beta_0))
   partial_beta_0 <- sum((1 - resp)*l1x) - sum_l*(digamma(beta_0) - digamma(alpha_0 + beta_0))
 
@@ -313,14 +339,59 @@ grad_LL_ <- function(params, lx, l1x, resp) {
   return(c(partial_alpha_0, partial_beta_0, partial_alpha_1, partial_beta_1))
 }
 
+# Returns closed-form estimates of shape parameters using digamma approximation
+closed_form_ <- function(lx, l1x, resp) {
+
+  y_1_0 <- colSums((1 - resp)*lx) / colSums((1 - resp))
+  y_2_0 <- colSums((1 - resp)*l1x) / colSums((1 - resp))
+
+  y_1_1 <- colSums(resp*lx) / colSums(resp)
+  y_2_1 <- colSums(resp*l1x) / colSums(resp)
+
+  alpha_0 <- 0.5 + (0.5*exp(-y_2_0))/((exp(-y_2_0) - 1)*(exp(-y_1_0) - 1) - 1)
+  beta_0 <- (0.5*exp(-y_2_0)*(exp(-y_1_0) - 1))/((exp(-y_2_0) - 1)*(exp(-y_1_0) - 1) - 1)
+
+  alpha_1 <- 0.5 + (0.5*exp(-y_2_1))/((exp(-y_2_1) - 1)*(exp(-y_1_1) - 1) - 1)
+  beta_1 <- (0.5*exp(-y_2_1)*(exp(-y_1_1) - 1))/((exp(-y_2_1) - 1)*(exp(-y_1_1) - 1) - 1)
+
+  updated_shape_params <- cbind(alpha_0, beta_0, alpha_1, beta_1)
+
+  return(updated_shape_params) # Returns the output formatted as matrix of size d x 4
+}
+
 # M step for shape parametrization
 # When obj_param is specified to be one of the shape parameters, only obj_param is overwritten by MLE; all others are fixed
 # The resp argument is only used when either pi or all parameters are the objective
 # The pi argument is only used when one of the shape parameters is the objective
-m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
+m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param, digamma_approx) {
 
   eps <- 1e-6 # Can be tweaked, but a Beta mixture is likely extremely misspecified if any parameter reaches such a low value
   d <- ncol(Y)
+
+  if(obj_param == "pi" | obj_param == "all") {
+
+    pi <- matrixStats::colMeans2(resp) # Desired vector of length d; using the matrixStats implementation of this because it is fully optimized
+
+    if(obj_param == "pi") {
+
+      new_params <- cbind(pi, start)
+      return(new_params) # Exit the M-step immediately since the shape parameters are fixed; when obj_param is anything else, we proceed to the remainder of the M-step code
+    }
+  }
+
+  if(digamma_approx == TRUE) {
+
+    lx  <- log(Y)
+    l1x <- log1p(-Y)
+
+    updated_shape_params <- closed_form_(lx, l1x, resp)
+    updated_params <- cbind(pi, updated_shape_params)
+
+    colnames(updated_params) <- c("pi", "alpha_0", "beta_0", "alpha_1", "beta_1")
+    rownames(updated_params) <- colnames(Y)
+
+    return(updated_params)
+  }
 
   # d x 4 matrix containing start values for MLE
   start <- cbind(alpha_0, beta_0, alpha_1, beta_1)
@@ -347,17 +418,6 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param) {
     }
     return(bm_LL_(x, alpha_0, beta_0, alpha_1, beta_1, pi_t))
     # return(sum(log((1 - pi_t)*dbeta(x, alpha_0, beta_0) + pi_t*dbeta(x, alpha_1, beta_1)))) <- potentially unstable
-  }
-
-  if(obj_param == "pi" | obj_param == "all") {
-
-    pi <- matrixStats::colMeans2(resp) # Desired vector of length d; using the matrixStats implementation of this because it is fully optimized
-
-    if(obj_param == "pi") {
-
-      new_params <- cbind(pi, start)
-      return(new_params) # Exit the M-step immediately since the shape parameters are fixed; when obj_param is anything else, we proceed to the remainder of the M-step code
-    }
   }
 
   # Runs maxLik() on an individual mixture model when the objective parameter is not pi

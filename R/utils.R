@@ -45,3 +45,15 @@ enforce_labels_ <- function(shape_params) {
 
   return(labeled_shape_params)
 }
+
+# Introduce Gaussian noise into initial parameter estimates
+introduce_noise_ <- function(param) {
+
+  eps <- 1e-3
+
+  d <- length(param)
+  perturbed <- param + rnorm(d, sd = param/1.5) # 1.5 is an arbitrary choice. Can be flexible
+
+  perturbed <- pmax(perturbed, eps) # Prevent underflow
+  return(perturbed)
+}
