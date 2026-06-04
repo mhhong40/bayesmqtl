@@ -15,7 +15,7 @@
 #' @param introduce_noise Logical; if TRUE, introduces random (Gaussian) noise to initial shape parameter estimates.
 #' @param extract_initials Logical; if TRUE, only returns the mixture proportion/shape parameter estimates from the k-means initialization.
 #' @param digamma_approx Logical; if TRUE, uses approximate closed-form parameter estimates during the M-step as used by Majumdar et al. (2024) [cit needed]
-fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", "md"), tol = 0.1, maxit = 1000,
+fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", tol = 0.1, maxit = 1000,
                                obj_param = c("all", "pi", "alpha_0", "beta_0", "alpha_1", "beta_1"),
                                sens_param = c("none", "alpha_0", "beta_0", "alpha_1", "beta_1"),
                                true_params, sens_param_val,
@@ -94,6 +94,17 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = c("shape", 
           beta_0 <- introduce_noise_(beta_0)
           alpha_1 <- introduce_noise_(alpha_1)
           beta_1 <- introduce_noise_(beta_1)
+
+          m_l_pert <- alpha_0 / (alpha_0 + beta_0)
+          m_u_pert <- alpha_1 / (alpha_1 + beta_1)
+
+          v_l_pert <- alpha_0*beta_0 / ((alpha_0 + beta_0)^2 * (alpha_0 + beta_0 + 1))
+          v_u_pert <- alpha_1*beta_1 / ((alpha_1 + beta_1)^2 * (alpha_1 + beta_1 + 1))
+
+          cat("Perturbed means: mu_0 = ", m_l_pert, "; mu_1 = ", m_u_pert, "\n",
+              "Perturbed variances: phi_0 = ", v_l_pert, "; phi_1 = ", v_u_pert , "\n",
+              "Unperturbed means: mu_0 = ", m_l, "; mu_1 = ", m_u, "\n",
+              "Unperturbed variances: phi_0 = ", v_l, "; phi_1 = ", v_u, sep = "")
         }
 
       }
