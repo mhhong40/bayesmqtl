@@ -58,25 +58,23 @@ introduce_noise_ <- function(param) {
   return(perturbed)
 }
 
-# Inverse Mills ratio for z's updates. From Hélène's atlasqtl code
-# U needs to be adapted to take matrix input I think?
-inv_mills_ratio_ <- function(y, U, log_1_pnorm_U, log_pnorm_U) {
+# Inverse Mills ratio for z's updates.
+inv_mills_ratio_ <- function(y, U) {
 
   stopifnot(y %in% c(0, 1))
 
   if (y == 1) {
 
-    m <- exp(-U^2/2 - log(sqrt(2*pi)) - log_pnorm_U)
-    m[m < -U] <- -U
+    log_m <- dnorm(U, log = TRUE) - pnorm(U, log.p = TRUE) # Doing everything in log scale and then exponentiating prevents numerical underflow
+    m <- exp(log_m)
+  }
+  else {
 
-  } else {
-
-    m <- - exp(-U^2/2 - log(sqrt(2*pi)) - log_1_pnorm_U)
-    m[m > -U] <- -U
-
+    log_m <- dnorm(U, log = TRUE) - pnorm(U, lower.tail = FALSE, log.p = TRUE)
+    m <- -exp(log_m)
   }
 
-  m
+  return(m)
 }
 
 # For long lists of objects

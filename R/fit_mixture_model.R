@@ -181,7 +181,9 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
     current_LL <- colSums(bm_density_(Y, alpha_0, beta_0, alpha_1, beta_1, pi, log = TRUE))
     prev_LL <- current_LL - 100 # arbitrary starting point
 
-    result <- cbind(pi, alpha_0, beta_0, alpha_1, beta_1, current_LL)
+    result <- cbind(pi, alpha_0, beta_0, alpha_1, beta_1)
+    result <- as.matrix(result)
+    rownames(result) <- colnames(Y)
 
     iteration <- 1
     iteration_results <- list()
@@ -193,13 +195,13 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
     }
 
     # Only run EM algorithm on CpGs that have not yet converged
-    not_converged <- rep(TRUE, d)
+    not_converged <- seq_len(d)
 
     while(length(not_converged) > 0) { # Runs the algorithm until all models have reached convergence
 
-      if(any(current_LL < prev_LL)) { # For debugging
+      if(any(current_LL < prev_LL - eps)) { # For debugging
 
-        stop(paste0("Warning: at least one of the model log-likelihoods is not monotonically increasing with each iteration. Check your implementation."))
+        stop(paste0("At least one of the model log-likelihoods is not monotonically increasing. Check your implementation."))
       }
 
       if(iteration == maxit) {
@@ -221,7 +223,7 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
       if(obj_param == "pi") {
 
         # Only pi is optimized via the M-step
-        updated_params <- m_step_(Y = Y[, not_converged, drop = FALSE], resp = resp[, not_converged, drop = FALSE],
+        updated_params <- m_step_(Y = Y[, not_converged, drop = FALSE], resp = resp,
                                   alpha_0 = alpha_0[not_converged], beta_0 = beta_0[not_converged],
                                   alpha_1 = alpha_1[not_converged], beta_1 = beta_1[not_converged],
                                   obj_param = obj_param)
@@ -236,11 +238,15 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
       }
       else {
 
-       updated_params <- m_step_(Y[, not_converged, drop = FALSE], resp = resp[, not_converged, drop = FALSE],
-                                 alpha_0 = alpha_0[not_converged], beta_0 = beta_0[not_converged],
-                                 alpha_1 = alpha_1[not_converged], beta_1 = beta_1[not_converged],
-                                 obj_param = obj_param, digamma_approx = digamma_approx)
+        updated_params <- m_step_(Y[, not_converged, drop = FALSE], resp = resp,
+                                  alpha_0 = alpha_0[not_converged], beta_0 = beta_0[not_converged],
+                                  alpha_1 = alpha_1[not_converged], beta_1 = beta_1[not_converged],
+                                  obj_param = obj_param, digamma_approx = digamma_approx)
       }
+
+      updated_params <- matrix(updated_params, nrow = length(not_converged),
+                               dimnames = list(colnames(Y)[not_converged],
+                                               c("pi", "alpha_0", "beta_0", "alpha_1", "beta_1")))
 
       pi[not_converged] <- updated_params[, 1]
       alpha_0[not_converged] <- updated_params[, 2]
@@ -254,21 +260,16 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
       end_time <- proc.time()[[3]]
       time_elapsed <- end_time - start_time
 
+      # Storing step results and runtime
+      result[not_converged, ] <- updated_params  # Update only the not-yet-converged rows
+      iteration_results[[iteration]] <- list(cbind(result, current_LL), time_elapsed)
+      names(iteration_results[[iteration]]) <- c("param_estimates", "time_elapsed") # To access runtimes only, use unlist(sapply(fit_results, function(x) x[2]))
+
       # Update the indices of CpGs that still have not converged
       not_converged <- abs(current_LL - prev_LL) > tol
       not_converged <- which(not_converged)
-
-      # Storing step results and runtime
-      updated_params <- cbind(updated_params, current_LL)
-      iteration_results[[iteration]] <- list(updated_params, time_elapsed)
-      names(iteration_results[[iteration]]) <- c("param_estimates", "time_elapsed") # To access runtimes only, use unlist(sapply(fit_results, function(x) x[2]))
     }
     return(iteration_results)
-  }
-  else if (parametrization == "md") {
-
-    # TO DO: code algorithm for mean/dispersion parametrization
-
   }
   else {
 
@@ -285,8 +286,17 @@ e_step_ <- function(Y, pi, alpha_0, beta_0, alpha_1, beta_1) {
   n <- nrow(Y)
 
   # Log-sum-exp implementation
-  log_lower <- sweep(dbeta(Y, alpha_0, beta_0, log = TRUE), 2, log1p(-pi), "+") # log1p(-pi) for added numerical stability
-  log_upper <- sweep(dbeta(Y, alpha_1, beta_1, log = TRUE), 2, log(pi), "+")
+  log_dens_lower <- mapply(function(y_col, a, b) dbeta(y_col, a, b, log = TRUE),
+                           y_col = as.data.frame(Y),
+                           a = alpha_0,
+                           b = beta_0)
+  log_dens_upper <- mapply(function(y_col, a, b) dbeta(y_col, a, b, log = TRUE),
+                           y_col = as.data.frame(Y),
+                           a = alpha_1,
+                           b = beta_1)
+
+  log_lower <- sweep(log_dens_lower, 2, log1p(-pi), "+")
+  log_upper <- sweep(log_dens_upper, 2, log(pi), "+")
 
   m <- pmax(log_lower, log_upper)
   log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
@@ -300,8 +310,17 @@ e_step_ <- function(Y, pi, alpha_0, beta_0, alpha_1, beta_1) {
 bm_density_ <- function(Y, alpha_0, beta_0, alpha_1, beta_1, pi, log = TRUE) {
 
   # Log-sum-exp implementation
-  log_lower <- sweep(dbeta(Y, alpha_0, beta_0, log = TRUE), 2, log1p(-pi), "+") # log1p(-pi) for added numerical stability
-  log_upper <- sweep(dbeta(Y, alpha_1, beta_1, log = TRUE), 2, log(pi), "+")
+  log_dens_lower <- mapply(function(y_col, a, b) dbeta(y_col, a, b, log = TRUE),
+                           y_col = as.data.frame(Y),
+                           a = alpha_0,
+                           b = beta_0)
+  log_dens_upper <- mapply(function(y_col, a, b) dbeta(y_col, a, b, log = TRUE),
+                           y_col = as.data.frame(Y),
+                           a = alpha_1,
+                           b = beta_1)
+
+  log_lower <- sweep(log_dens_lower, 2, log1p(-pi), "+")
+  log_upper <- sweep(log_dens_upper, 2, log(pi), "+")
 
   m <- pmax(log_lower, log_upper)
   log_marginal <- m + log(exp(log_lower - m) + exp(log_upper - m))
@@ -498,7 +517,7 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param, di
   updated_shape_params <- unlist(updated_shape_params)
   updated_shape_params <- t(matrix(updated_shape_params, nrow = 4, ncol = d))
 
-  updated_shape_params <- enforce_labels_(updated_shape_params) # function is in utils.R
+  updated_shape_params <- enforce_labels_(updated_shape_params)
   updated_params <- cbind(pi, updated_shape_params)
 
   colnames(updated_params) <- c("pi", "alpha_0", "beta_0", "alpha_1", "beta_1")
