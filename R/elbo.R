@@ -1,8 +1,8 @@
 # Functions comprising the ELBO terms in elbo() from bayesmqtl_core.R
 
-elbo_y_ <- function(logP, log_1P, z_vb) {
+elbo_y_ <- function(logP_upper, logP_lower, z_vb) {
 
-  elbo_y <- z_vb * logP + (1 - z_vb) * log_1P
+  elbo_y <- z_vb * logP_upper + (1 - z_vb) * logP_lower
   elbo_y <- sum(elbo_y)
 
   return(elbo_y)
@@ -10,8 +10,12 @@ elbo_y_ <- function(logP, log_1P, z_vb) {
 
 elbo_z_rho_ <- function(X, z_vb, log_Phi_xi_vb, log_1_Phi_xi_vb, sig2_gam_0_vb, sig2_gam_1_vb) {
 
-  elbo_z_rho <- sweep(z_vb * log_Phi_xi_vb + (1 - z_vb) * log_1_Phi_xi_vb - 1/2 * (X^2 %*% sig2_gam_1_vb), 2, 1/2 * sig2_gam_0_vb, "-")
-  elbo_z_rho <- sum(elbo_z_rho)
+  elbo_no_entropy_z <- sweep(z_vb * log_Phi_xi_vb + (1 - z_vb) * log_1_Phi_xi_vb - 1/2 * (X^2 %*% sig2_gam_1_vb), 2, 1/2 * sig2_gam_0_vb, "-")
+
+  entropy_z <- - (z_vb * log(z_vb) + (1 - z_vb) * log(1 - z_vb))
+  entropy_z[is.nan(entropy_z)] <- 0
+
+  elbo_z_rho <- sum(elbo_no_entropy_z) + sum(entropy_z)
 
   return(elbo_z_rho)
 }

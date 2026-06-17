@@ -35,9 +35,18 @@ update_sig2_gam_1_ <- function(X, tau_inv2_vb, lambda_inv2_vb) {
   return(sig2_gam_1_vb)
 }
 
-update_mu_gam_1_ <- function(sig2_gam_1_vb, X, rho_vb, mu_gam_0_vb) {
+update_mu_gam_1_ <- function(sig2_gam_1_vb, X, rho_vb, mu_gam_0_vb, mu_gam_1_vb) {
 
-  mu_gam_1_vb <- sig2_gam_1_vb * crossprod(X, sweep(rho_vb, 2, mu_gam_0_vb, "-"))
+  p <- ncol(X)
+
+  resid <- sweep(rho_vb, 2, mu_gam_0_vb, "-")
+
+  for (s in 1:p) {
+
+    partial_resid <- resid - X[, -s, drop = FALSE] %*% mu_gam_1_vb[-s, , drop = FALSE]
+
+    mu_gam_1_vb[s, ] <- sig2_gam_1_vb[s, ] * crossprod(X[, s], partial_resid)
+  }
 
   return(mu_gam_1_vb)
 }
