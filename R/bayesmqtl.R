@@ -20,7 +20,7 @@ bayesmqtl <- function(Y, X, list_hyper, list_init,
   beta_1_t <- mix_model_fit[, 5]
 
   logP_lower <- mapply(FUN = dbeta, x = as.data.frame(Y), shape1 = alpha_0_t, shape2 = beta_0_t, log = rep(TRUE, d))
-  logP_upper <- mapply(FUN = dbeta, x = as.data.frame(Y), shape1 = alpha_1_t, shape2 = beta_1_t, log = rep(TRUE, d)) # Should rename logP and log1P in the lower-level scripts to reflect that they are not exact complements of each other!
+  logP_upper <- mapply(FUN = dbeta, x = as.data.frame(Y), shape1 = alpha_1_t, shape2 = beta_1_t, log = rep(TRUE, d))
 
   # Run variational inference
   bayesmqtl <- bayesmqtl_core_(Y, X, logP_upper, logP_lower, list_hyper, list_init, tol = tol_vb, maxit, full_output = FALSE, verbose)

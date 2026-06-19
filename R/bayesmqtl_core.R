@@ -60,7 +60,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     # % #
 
     # % #
-    xi_vb <- mu_gam_0_vb + X %*% mu_gam_1_vb
+    xi_vb <- mu_gam_0_vb + X %*% mu_gam_1_vb # xi_vb gets updated
 
     log_Phi_xi_vb <- pnorm(xi_vb, log.p = TRUE)
     log_1_Phi_xi_vb <- pnorm(xi_vb, log.p = TRUE, lower.tail = FALSE)
@@ -165,6 +165,15 @@ elbo_ <- function(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_x
   elbo_G <- elbo_a_(d_a, a_inv_vb, log_a_inv_vb)
 
   elbo_H <- elbo_b_(d_b, b_inv_vb, log_b_inv_vb)
+
+#  cat("elbo_y:", elbo_A, "\n")
+#  cat("elbo_z_rho:", elbo_B, "\n")
+#  cat("elbo_gam_0:", elbo_C, "\n")
+#  cat("elbo_gam_1:", elbo_D, "\n")
+#  cat("elbo_lambda:", elbo_E, "\n")
+#  cat("elbo_tau:", elbo_F, "\n")
+#  cat("elbo_a:", elbo_G, "\n")
+#  cat("elbo_b:", elbo_H, "\n")
 
   return(elbo_A + elbo_B + elbo_C + elbo_D + elbo_E + elbo_F + elbo_G + elbo_H)
 }
