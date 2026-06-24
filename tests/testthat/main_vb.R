@@ -8,7 +8,7 @@ Y_unassoc <- dat[, c(1:3)]
 
 # SNP data
 library(echoseq)
-snps <- generate_snps(n = 250, p = 15, user_seed = 5)
+snps <- generate_snps(n = 250, p = 10, user_seed = NULL)
 snps <- snps$snps
 
 # Generate CpG data for associated CpGs
@@ -18,7 +18,7 @@ d <- 5
 d_assoc <- 2
 
 library(extraDistr) # For rbern()
-set.seed(5)
+# set.seed(5)
 true_mu_gam_1 <- matrix(rnorm(p*d_assoc), nrow = p, ncol = d_assoc) * matrix(rbern(p*d_assoc, prob = 0.3), nrow = p, ncol = d_assoc)
 true_mu_gam_0 <- rnorm(d_assoc)
 
@@ -42,5 +42,6 @@ Y <- cbind(Y_assoc, Y_unassoc)
 list_hyper <- auto_set_hyper_()
 list_init <- auto_set_init_(Y = Y_assoc, X = snps, user_seed = 5)
 
+X <- scale(snps)
 devtools::load_all()
-bayesmqtl <- bayesmqtl(Y = Y_assoc, X = snps, list_hyper, list_init, tol_mix = 0.1, tol_vb = 0.1, maxit = 1000, verbose = FALSE)
+bayesmqtl <- bayesmqtl(Y = Y_assoc, X = X, list_hyper, list_init, tol_mix = 0.1, tol_vb = 0.01, maxit = 1000, verbose = FALSE)

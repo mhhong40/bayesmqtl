@@ -1,5 +1,5 @@
 # Core function containing the iterative variational algorithm for bayesmqtl
-bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init, tol, maxit, full_output = FALSE, verbose) { # logP_upper and logP_lower are computed outside of the core function and supplied to it
+bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init, tol, maxit, full_output = TRUE, verbose) { # logP_upper and logP_lower are computed outside of the core function and supplied to it
 
   eps <- .Machine$double.eps^0.5
 
@@ -19,6 +19,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
 
   converged <- FALSE
   lb_new <- -Inf
+  elbos <- c()
   it <- 0
 
   sig2_gam_0_vb <- update_sig2_gam_0_(sig_0_inv2, n, d) # Constant, so can be placed outside of the loop
@@ -32,6 +33,9 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
   z_vb <- update_z_(logP_upper, logP_lower, log_Phi_xi_vb, log_1_Phi_xi_vb)
   rho_vb <- update_rho_(X, z_vb, xi_vb)
 
+  # Preset object
+  resid_mu_gam_1 <- matrix(nrow = n, ncol = d)
+
   while((!converged) & (it < maxit)) {
 
     lb_old <- lb_new
@@ -44,11 +48,11 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     a_inv_vb <- update_a_inv_(lambda_inv2_vb, p, log = FALSE)
     b_inv_vb <- update_b_inv_(tau_inv2_vb, d, log = FALSE)
 
-    eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb)
-    eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb)
+    eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d)
+    eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p)
 
-    lambda_inv2_vb <- update_lambda_inv2_(eta_lambda, log = FALSE)
-    tau_inv2_vb <- update_tau_inv2_(eta_tau, log = FALSE)
+    lambda_inv2_vb <- update_lambda_inv2_(eta_lambda, p, d, log = FALSE)
+    tau_inv2_vb <- update_tau_inv2_(eta_tau, p, d, log = FALSE)
     # % #
 
     # % #
@@ -56,7 +60,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     sig2_gam_1_vb <- update_sig2_gam_1_(X, tau_inv2_vb, lambda_inv2_vb)
 
     mu_gam_0_vb <- update_mu_gam_0_(sig_0_inv2, sig2_gam_0_vb, eta_0, X, mu_gam_1_vb, rho_vb)
-    mu_gam_1_vb <- update_mu_gam_1_(sig2_gam_1_vb, X, rho_vb, mu_gam_0_vb, mu_gam_1_vb)
+    mu_gam_1_vb <- update_mu_gam_1_(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1)
     # % #
 
     # % #
@@ -75,7 +79,9 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
                     tau_inv2_vb, lambda_inv2_vb,
                     eta_tau, eta_lambda, a_inv_vb, b_inv_vb)
 
-    print(lb_new)
+    elbos <- append(elbos, lb_new)
+
+    cat("ELBO total: ", lb_new, "\n")
 
     if (lb_new + eps < lb_old)
       stop("ELBO not increasing monotonically. Exit.")
@@ -101,7 +107,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
 
     output <- create_named_list_(z_vb, rho_vb, sig2_gam_0_vb, sig2_gam_1_vb,
                                  mu_gam_0_vb, mu_gam_1_vb, tau_inv2_vb, lambda_inv2_vb,
-                                 a_inv_vb, b_inv_vb)
+                                 a_inv_vb, b_inv_vb, elbos)
 
     return(output)
   }
@@ -136,15 +142,15 @@ elbo_ <- function(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_x
   sig2_gam_0_vb <- update_sig2_gam_0_(sig_0_inv2, n, d)
   sig2_gam_1_vb <- update_sig2_gam_1_(X, tau_inv2_vb, lambda_inv2_vb)
 
-  eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb)
-  eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb)
+  eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d)
+  eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p)
 
   # Expectations of logs only needed for computing the ELBO
   log_a_inv_vb <- update_a_inv_(lambda_inv2_vb, p, log = TRUE)
   log_b_inv_vb <- update_b_inv_(tau_inv2_vb, d, log = TRUE)
 
-  log_tau_inv2_vb <- update_tau_inv2_(eta_tau, log = TRUE)
-  log_lambda_inv2_vb <- update_lambda_inv2_(eta_lambda, log = TRUE)
+  log_tau_inv2_vb <- update_tau_inv2_(eta_tau, p, d, log = TRUE)
+  log_lambda_inv2_vb <- update_lambda_inv2_(eta_lambda, p, d, log = TRUE)
 
   d_a <- lambda_inv2_vb + 1
   d_b <- tau_inv2_vb + 1
@@ -158,9 +164,9 @@ elbo_ <- function(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_x
 
   elbo_D <- elbo_gam_1_(log_tau_inv2_vb, log_lambda_inv2_vb, tau_inv2_vb, lambda_inv2_vb, mu_gam_1_vb, sig2_gam_1_vb)
 
-  elbo_E <- elbo_lambda_(log_a_inv_vb, log_lambda_inv2_vb, eta_lambda, lambda_inv2_vb)
+  elbo_E <- elbo_lambda_(a_inv_vb, log_a_inv_vb, log_lambda_inv2_vb, eta_lambda, lambda_inv2_vb, d)
 
-  elbo_F <- elbo_tau_(log_b_inv_vb, log_tau_inv2_vb, eta_tau, tau_inv2_vb)
+  elbo_F <- elbo_tau_(b_inv_vb, log_b_inv_vb, log_tau_inv2_vb, eta_tau, tau_inv2_vb, p)
 
   elbo_G <- elbo_a_(d_a, a_inv_vb, log_a_inv_vb)
 

@@ -35,32 +35,33 @@ update_sig2_gam_1_ <- function(X, tau_inv2_vb, lambda_inv2_vb) {
   return(sig2_gam_1_vb)
 }
 
-update_mu_gam_1_ <- function(sig2_gam_1_vb, X, rho_vb, mu_gam_0_vb, mu_gam_1_vb) {
+update_mu_gam_1_ <- function(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1) {
 
   p <- ncol(X)
 
-  resid <- sweep(rho_vb, 2, mu_gam_0_vb, "-")
+   for (k in 1:d) {
 
-  for (s in 1:p) {
+    for (j in 1:p) {
 
-    partial_resid <- resid - X[, -s, drop = FALSE] %*% mu_gam_1_vb[-s, , drop = FALSE]
+      resid_mu_gam_1[, k] <- rho_vb[, k] - mu_gam_0_vb[k] - X %*% mu_gam_1_vb[, k] + mu_gam_1_vb[j, k] * X[, j, drop = FALSE]
 
-    mu_gam_1_vb[s, ] <- sig2_gam_1_vb[s, ] * crossprod(X[, s], partial_resid)
+      mu_gam_1_vb[j, k] <- sig2_gam_1_vb[j, k] * sum(X[, j] * resid_mu_gam_1[, k])
+    }
   }
 
   return(mu_gam_1_vb)
 }
 
-update_eta_lambda_ <- function(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb) {
+update_eta_lambda_ <- function(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d) {
 
-  eta_lambda <- 1/2 * rowSums(sweep(sig2_gam_1_vb^2 + mu_gam_1_vb^2, 2, tau_inv2_vb, "*")) + a_inv_vb
+  eta_lambda <- 1/2 * rowSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 2, tau_inv2_vb, "*")) + d*a_inv_vb
 
   return(eta_lambda)
 }
 
-update_lambda_inv2_ <- function(eta_lambda, p, log) {
+update_lambda_inv2_ <- function(eta_lambda, p, d, log) {
 
-  nu_lambda <- rep(1/2, p)
+  nu_lambda <- rep((d+1)/2, p)
 
   if(log) {
 
@@ -76,16 +77,16 @@ update_lambda_inv2_ <- function(eta_lambda, p, log) {
   }
 }
 
-update_eta_tau_ <- function(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb) {
+update_eta_tau_ <- function(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p) {
 
-  eta_tau <- 1/2 * colSums(sweep(sig2_gam_1_vb^2 + mu_gam_1_vb^2, 1, lambda_inv2_vb, "*")) + b_inv_vb
+  eta_tau <- 1/2 * colSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 1, lambda_inv2_vb, "*")) + p*b_inv_vb
 
   return(eta_tau)
 }
 
-update_tau_inv2_ <- function(eta_tau, d, log) {
+update_tau_inv2_ <- function(eta_tau, p, d, log) {
 
-  nu_tau <- rep(1/2, d)
+  nu_tau <- rep((p+1)/2, d)
 
   if(log) {
 

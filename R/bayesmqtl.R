@@ -23,7 +23,7 @@ bayesmqtl <- function(Y, X, list_hyper, list_init,
   logP_upper <- mapply(FUN = dbeta, x = as.data.frame(Y), shape1 = alpha_1_t, shape2 = beta_1_t, log = rep(TRUE, d))
 
   # Run variational inference
-  bayesmqtl <- bayesmqtl_core_(Y, X, logP_upper, logP_lower, list_hyper, list_init, tol = tol_vb, maxit, full_output = FALSE, verbose)
+  bayesmqtl <- bayesmqtl_core_(Y, X, logP_upper, logP_lower, list_hyper, list_init, tol = tol_vb, maxit, full_output = TRUE, verbose)
 
   return(bayesmqtl)
 }

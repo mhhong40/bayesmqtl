@@ -30,23 +30,23 @@ elbo_gam_0_ <- function(sig_0_inv2, eta_0, mu_gam_0_vb, sig2_gam_0_vb) {
 
 elbo_gam_1_ <- function(log_tau_inv2_vb, log_lambda_inv2_vb, tau_inv2_vb, lambda_inv2_vb, mu_gam_1_vb, sig2_gam_1_vb) {
 
-  elbo_gam_1 <- 1/2 * (outer(log_lambda_inv2_vb, log_tau_inv2_vb, "+") - outer(lambda_inv2_vb, tau_inv2_vb, "*") * (mu_gam_1_vb^2 + sig2_gam_1_vb) + log(sig2_gam_1_vb) + 1)
+  elbo_gam_1 <- 1/2 * (-outer(log_lambda_inv2_vb, log_tau_inv2_vb, "+") + outer(lambda_inv2_vb, tau_inv2_vb, "*") * (mu_gam_1_vb^2 + sig2_gam_1_vb) + log(sig2_gam_1_vb) - 1)
   elbo_gam_1 <- sum(elbo_gam_1)
 
   return(elbo_gam_1)
 }
 
-elbo_lambda_ <- function(log_a_inv_vb, log_lambda_inv2_vb, eta_lambda, lambda_inv2_vb) {
+elbo_lambda_ <- function(a_inv_vb, log_a_inv_vb, log_lambda_inv2_vb, eta_lambda, lambda_inv2_vb, d) {
 
-  elbo_lambda <- 1/2 * (log_a_inv_vb + log_lambda_inv2_vb + log(eta_lambda) - log(lambda_inv2_vb))
+  elbo_lambda <- 1/2 * ((eta_lambda - a_inv_vb)*lambda_inv2_vb - d*log_lambda_inv2_vb + log_a_inv_vb - (d+1)*log(eta_lambda))
   elbo_lambda <- sum(elbo_lambda)
 
   return(elbo_lambda)
 }
 
-elbo_tau_ <- function(log_b_inv_vb, log_tau_inv2_vb, eta_tau, tau_inv2_vb) {
+elbo_tau_ <- function(b_inv_vb, log_b_inv_vb, log_tau_inv2_vb, eta_tau, tau_inv2_vb, p) {
 
-  elbo_tau <- 1/2 * (log_b_inv_vb + log_tau_inv2_vb + log(eta_tau) - log(tau_inv2_vb))
+  elbo_tau <- 1/2 * ((eta_tau - b_inv_vb)*tau_inv2_vb - p*log_tau_inv2_vb + log_b_inv_vb - (p+1)*log(eta_tau))
   elbo_tau <- sum(elbo_tau)
 
   return(elbo_tau)
