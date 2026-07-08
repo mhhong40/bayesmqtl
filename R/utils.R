@@ -5,6 +5,36 @@
 #   db <- ifelse(is.infinite(db), 0, db)
 # }
 
+# For data simulation
+generate_phi_ <- function(b, mu, mult) { # b is a scalar; mu and mult can be vector inputs
+
+  del <- 1e-4 # An arbitrary choice; this can be tweaked
+  phi_min <- del # Ensures that the distribution is not degenerate
+
+  ind_l <- which(mu < 0.5)
+  ind_u <- which(mu >= 0.5)
+
+  phi_max <- rep(0, 5)
+
+  phi_max[ind_l] <- mu[ind_l]^2 * ((1 - mu[ind_l]) / (1 + mu[ind_l])) # Ensures that \beta > \alpha > 1 if \mu < 0.5
+  phi_max[ind_u] <- mu[ind_u] * ((1 - mu[ind_u])^2 / (2 - mu[ind_u])) # Ensures that \alpha > \beta > 1 if \mu >= 0.5
+
+  # The input variable mult is used to further restrict the final variance of the simulated dataset
+  phi <- runif(b, min = phi_min, max = pmax(phi_max*mult, del)) # b = batch size
+  return(phi)
+}
+
+compute_alpha_ <- function(mu, phi){
+
+  return(mu * (mu * (1 - mu) / phi - 1))
+}
+
+compute_beta_ <- function(mu, phi){
+
+  return((1 - mu) * (mu * (1 - mu) / phi - 1))
+}
+
+
 # Enforce labels on \mu_0, \mu in fit_mixture_model_()
 enforce_labels_ <- function(shape_params) {
 

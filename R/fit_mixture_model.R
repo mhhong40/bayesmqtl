@@ -24,9 +24,7 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
   n <- nrow(Y)
   d <- ncol(Y)
 
-  # Control over numerical under/overflow
   eps <- 1e-6
-  Y <- pmin(pmax(Y, eps), 1 - eps)
 
   # Use k-means to initialize components
   p_kmeans_ <- function(x) {

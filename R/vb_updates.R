@@ -35,17 +35,32 @@ update_sig2_gam_1_ <- function(X, tau_inv2_vb, lambda_inv2_vb) {
   return(sig2_gam_1_vb)
 }
 
-update_mu_gam_1_ <- function(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1) {
+update_mu_gam_1_ <- function(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1, vectorized = TRUE) {
 
   p <- ncol(X)
 
-   for (k in 1:d) {
+  rho_min_all_mu <- sweep(rho_vb, 2, mu_gam_0_vb, "-") - X %*% mu_gam_1_vb
+
+  if(vectorized) {
 
     for (j in 1:p) {
 
-      resid_mu_gam_1[, k] <- rho_vb[, k] - mu_gam_0_vb[k] - X %*% mu_gam_1_vb[, k] + mu_gam_1_vb[j, k] * X[, j, drop = FALSE]
+      old_mu_j <- mu_gam_1_vb[j, ]
+      mu_gam_1_vb[j, ] <- sig2_gam_1_vb[j, ] * crossprod(X[, j], rho_min_all_mu + outer(X[, j], old_mu_j))
+      rho_min_all_mu <- rho_min_all_mu - outer(X[, j], mu_gam_1_vb[j, ] - old_mu_j)
 
-      mu_gam_1_vb[j, k] <- sig2_gam_1_vb[j, k] * sum(X[, j] * resid_mu_gam_1[, k])
+    }
+  }
+  else {
+
+    for (k in 1:d) { # Slower
+
+      for (j in 1:p) {
+
+        resid_mu_gam_1[, k] <- rho_vb[, k] - mu_gam_0_vb[k] - X %*% mu_gam_1_vb[, k] + mu_gam_1_vb[j, k] * X[, j, drop = FALSE]
+
+        mu_gam_1_vb[j, k] <- sig2_gam_1_vb[j, k] * sum(X[, j] * resid_mu_gam_1[, k])
+      }
     }
   }
 

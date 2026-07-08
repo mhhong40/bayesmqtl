@@ -5,8 +5,12 @@ bayesmqtl <- function(Y, X, list_hyper, list_init,
 
   d <- ncol(Y)
 
+  # Control over numerical under/overflow
+  eps <- 1e-6
+  Y <- pmin(pmax(Y, eps), 1 - eps)
+
   # Run mixture modelling
-  mix_model_fit <- fit_mixture_model_(Y, tol = tol_mix, obj_param = "all", sens_param = "none", true_params = NULL, digamma_approx = TRUE) # mix_model_fit is a list where each element contains pi, alphas, betas, and the current log-likelihood
+  mix_model_fit <- fit_mixture_model_(Y, tol = tol_mix, obj_param = "all", sens_param = "none", true_params = NULL, digamma_approx = FALSE) # mix_model_fit is a list where each element contains pi, alphas, betas, and the current log-likelihood
 
   finalit <- length(mix_model_fit)
   mix_model_fit <- mix_model_fit[[finalit]]

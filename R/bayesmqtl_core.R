@@ -18,6 +18,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
   sig_0_inv2 <- list_hyper$sig_0_inv2
 
   converged <- FALSE
+  lb_new_vec <- rep(-Inf, 8) # 8 model parameter types
   lb_new <- -Inf
   elbos <- c()
   it <- 0
@@ -36,8 +37,17 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
   # Preset object
   resid_mu_gam_1 <- matrix(nrow = n, ncol = d)
 
+  # Basic code profiling
+  start_time <- proc.time()[[3]]
+
+  # Track individual changes in ELBO
+  lb_old_vec <- c()
+  lb_diffs <- as.matrix(t(lb_new_vec))
+  colnames(lb_diffs) <- c("y", "z, rho", "gam_0", "gam_1", "lambda", "tau", "a", "b")
+
   while((!converged) & (it < maxit)) {
 
+    lb_old_vec <- lb_new_vec
     lb_old <- lb_new
     it <- it + 1
 
@@ -60,7 +70,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     sig2_gam_1_vb <- update_sig2_gam_1_(X, tau_inv2_vb, lambda_inv2_vb)
 
     mu_gam_0_vb <- update_mu_gam_0_(sig_0_inv2, sig2_gam_0_vb, eta_0, X, mu_gam_1_vb, rho_vb)
-    mu_gam_1_vb <- update_mu_gam_1_(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1)
+    mu_gam_1_vb <- update_mu_gam_1_(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_vb, resid_mu_gam_1, vectorized = TRUE)
     # % #
 
     # % #
@@ -73,12 +83,16 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     rho_vb <- update_rho_(X, z_vb, xi_vb)
     # % #
 
-    lb_new <- elbo_(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_xi_vb,
+    lb_new_vec <- elbo_(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_xi_vb,
                     sig2_gam_0_vb, sig2_gam_1_vb,
                     sig_0_inv2, eta_0, mu_gam_0_vb, mu_gam_1_vb,
                     tau_inv2_vb, lambda_inv2_vb,
                     eta_tau, eta_lambda, a_inv_vb, b_inv_vb)
 
+    lb_diff_vec <- lb_new_vec - lb_old_vec
+    lb_diffs <- rbind(lb_diffs, lb_diff_vec)
+
+    lb_new <- sum(lb_new_vec)
     elbos <- append(elbos, lb_new)
 
     cat("ELBO total: ", lb_new, "\n")
@@ -103,11 +117,14 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
 
   diff_lb <- lb_opt - lb_old
 
+  end_time <- proc.time()[[3]]
+  time_elapsed <- end_time - start_time
+
   if(full_output) { # Only for internal use
 
     output <- create_named_list_(z_vb, rho_vb, sig2_gam_0_vb, sig2_gam_1_vb,
                                  mu_gam_0_vb, mu_gam_1_vb, tau_inv2_vb, lambda_inv2_vb,
-                                 a_inv_vb, b_inv_vb, elbos)
+                                 a_inv_vb, b_inv_vb, elbos, lb_diffs, time_elapsed)
 
     return(output)
   }
@@ -123,7 +140,7 @@ bayesmqtl_core_ <- function(Y, X, logP_upper, logP_lower, list_hyper, list_init,
     names(mu_gam_0_vb) <- names(mu_gam_1_vb) <- names_y
 
     create_named_list_(z_vb, rho_vb, mu_gam_0_vb, mu_gam_1_vb,
-                       n, p, d, converged, it, maxit, tol, lb_opt, diff_lb)
+                       n, p, d, converged, it, maxit, tol, lb_opt, diff_lb, lb_diffs, time_elapsed)
   }
 }
 
@@ -139,11 +156,11 @@ elbo_ <- function(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_x
   p <- ncol(X)
 
   # Make sure params are up-to-date with log-expectations
-  sig2_gam_0_vb <- update_sig2_gam_0_(sig_0_inv2, n, d)
-  sig2_gam_1_vb <- update_sig2_gam_1_(X, tau_inv2_vb, lambda_inv2_vb)
+#  sig2_gam_0_vb <- update_sig2_gam_0_(sig_0_inv2, n, d)
+#  sig2_gam_1_vb <- update_sig2_gam_1_(X, tau_inv2_vb, lambda_inv2_vb)
 
-  eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d)
-  eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p)
+#  eta_lambda <- update_eta_lambda_(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d)
+#  eta_tau <- update_eta_tau_(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p)
 
   # Expectations of logs only needed for computing the ELBO
   log_a_inv_vb <- update_a_inv_(lambda_inv2_vb, p, log = TRUE)
@@ -172,14 +189,14 @@ elbo_ <- function(logP_upper, logP_lower, Y, X, z_vb, log_Phi_xi_vb, log_1_Phi_x
 
   elbo_H <- elbo_b_(d_b, b_inv_vb, log_b_inv_vb)
 
-  cat("elbo_y:", elbo_A, "\n")
-  cat("elbo_z_rho:", elbo_B, "\n")
-  cat("elbo_gam_0:", elbo_C, "\n")
-  cat("elbo_gam_1:", elbo_D, "\n")
-  cat("elbo_lambda:", elbo_E, "\n")
-  cat("elbo_tau:", elbo_F, "\n")
-  cat("elbo_a:", elbo_G, "\n")
-  cat("elbo_b:", elbo_H, "\n")
+#  cat("elbo_y:", elbo_A, "\n")
+#  cat("elbo_z_rho:", elbo_B, "\n")
+#  cat("elbo_gam_0:", elbo_C, "\n")
+#  cat("elbo_gam_1:", elbo_D, "\n")
+#  cat("elbo_lambda:", elbo_E, "\n")
+#  cat("elbo_tau:", elbo_F, "\n")
+#  cat("elbo_a:", elbo_G, "\n")
+#  cat("elbo_b:", elbo_H, "\n")
 
-  return(elbo_A + elbo_B + elbo_C + elbo_D + elbo_E + elbo_F + elbo_G + elbo_H)
+  return(c(elbo_A, elbo_B, elbo_C, elbo_D, elbo_E, elbo_F, elbo_G, elbo_H))
 }
