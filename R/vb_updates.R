@@ -45,9 +45,9 @@ update_mu_gam_1_ <- function(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_
 
     for (j in 1:p) {
 
-      old_mu_j <- mu_gam_1_vb[j, ]
-      mu_gam_1_vb[j, ] <- sig2_gam_1_vb[j, ] * crossprod(X[, j], rho_min_all_mu + outer(X[, j], old_mu_j))
-      rho_min_all_mu <- rho_min_all_mu - outer(X[, j], mu_gam_1_vb[j, ] - old_mu_j)
+      mu_gam_1_j <- mu_gam_1_vb[j, ]
+      mu_gam_1_vb[j, ] <- sig2_gam_1_vb[j, ] * crossprod(X[, j], rho_min_all_mu + outer(X[, j], mu_gam_1_j))
+      rho_min_all_mu <- rho_min_all_mu - outer(X[, j], mu_gam_1_vb[j, ] - mu_gam_1_j)
 
     }
   }
@@ -67,16 +67,14 @@ update_mu_gam_1_ <- function(sig2_gam_1_vb, X, d, rho_vb, mu_gam_0_vb, mu_gam_1_
   return(mu_gam_1_vb)
 }
 
-update_eta_lambda_ <- function(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb, d) {
+update_eta_lambda_ <- function(tau_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, a_inv_vb) {
 
-  eta_lambda <- 1/2 * rowSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 2, tau_inv2_vb, "*")) + d*a_inv_vb
+  eta_lambda <- 1/2 * rowSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 2, tau_inv2_vb, "*")) + a_inv_vb
 
   return(eta_lambda)
 }
 
-update_lambda_inv2_ <- function(eta_lambda, p, d, log) {
-
-  nu_lambda <- rep((d+1)/2, p)
+update_lambda_inv2_ <- function(nu_lambda, eta_lambda, log) {
 
   if(log) {
 
@@ -92,16 +90,14 @@ update_lambda_inv2_ <- function(eta_lambda, p, d, log) {
   }
 }
 
-update_eta_tau_ <- function(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb, p) {
+update_eta_tau_ <- function(lambda_inv2_vb, sig2_gam_1_vb, mu_gam_1_vb, b_inv_vb) {
 
-  eta_tau <- 1/2 * colSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 1, lambda_inv2_vb, "*")) + p*b_inv_vb
+  eta_tau <- 1/2 * colSums(sweep(sig2_gam_1_vb + mu_gam_1_vb^2, 1, lambda_inv2_vb, "*")) + b_inv_vb
 
   return(eta_tau)
 }
 
-update_tau_inv2_ <- function(eta_tau, p, d, log) {
-
-  nu_tau <- rep((p+1)/2, d)
+update_tau_inv2_ <- function(nu_tau, eta_tau, log) {
 
   if(log) {
 
@@ -117,10 +113,7 @@ update_tau_inv2_ <- function(eta_tau, p, d, log) {
   }
 }
 
-update_a_inv_ <- function(lambda_inv2_vb, p, log) {
-
-  c_a <- rep(1, p)
-  d_a <- lambda_inv2_vb + 1
+update_a_inv_ <- function(c_a, d_a, log) {
 
   if(log) {
 
@@ -136,10 +129,7 @@ update_a_inv_ <- function(lambda_inv2_vb, p, log) {
   }
 }
 
-update_b_inv_ <- function(tau_inv2_vb, d, log) {
-
-  c_b <- rep(1, d)
-  d_b <- tau_inv2_vb + 1
+update_b_inv_ <- function(c_b, d_b, log) {
 
   if(log) {
 

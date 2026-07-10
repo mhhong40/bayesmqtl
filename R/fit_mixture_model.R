@@ -176,6 +176,22 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
       beta_1 <- (1 - m_u) * (m_u * (1 - m_u) / v_u - 1)
     }
 
+    # Filter out CpGs whose mixture params are NA values. In preliminary tests this is usually due to there being too few observations in a particular component (e.g., just 1 observation), so the 2-component mixture model is a severe misspecification
+    filt_out <- unique(c(which(is.na(alpha_0)), which(is.na(beta_0)), which(is.na(alpha_1)), which(is.na(beta_1))))
+
+    if (length(filt_out) > 0) {
+
+      Y <- Y[, -filt_out]
+      d <- ncol(Y)
+      alpha_0 <- alpha_0[-filt_out]
+      beta_0 <- beta_0[-filt_out]
+      alpha_1 <- alpha_1[-filt_out]
+      beta_1 <- beta_1[-filt_out]
+      pi <- pi[-filt_out]
+
+      warning(cat("A total of", length(filt_out), "CpG(s) were excluded from mixture model parameter estimation due to severe misspecification. They will also be excluded in subsequent variational inference."))
+    }
+
     current_LL <- colSums(bm_density_(Y, alpha_0, beta_0, alpha_1, beta_1, pi, log = TRUE))
     prev_LL <- current_LL - 100 # arbitrary starting point
 
@@ -260,8 +276,8 @@ fit_mixture_model_ <- function(Y, threshold = 0.5, parametrization = "shape", to
 
       # Storing step results and runtime
       result[not_converged, ] <- updated_params  # Update only the not-yet-converged rows
-      iteration_results[[iteration]] <- list(cbind(result, current_LL), time_elapsed)
-      names(iteration_results[[iteration]]) <- c("param_estimates", "time_elapsed") # To access runtimes only, use unlist(sapply(fit_results, function(x) x[2]))
+      iteration_results[[iteration]] <- list(cbind(result, current_LL), time_elapsed, filt_out)
+      names(iteration_results[[iteration]]) <- c("param_estimates", "time_elapsed", "filt_out") # To access runtimes only, use unlist(sapply(fit_results, function(x) x[2]))
 
       # Update the indices of CpGs that still have not converged
       not_converged <- abs(current_LL - prev_LL) > tol
@@ -476,26 +492,26 @@ m_step_ <- function(Y, resp, pi, alpha_0, beta_0, alpha_1, beta_1, obj_param, di
     }
     else if(obj_param == "alpha_0") {
 
-      fixed <- c("beta_0", "alpha_1", "beta_1")
+      fp <- c("beta_0", "alpha_1", "beta_1")
     }
     else if(obj_param == "beta_0") {
 
-      fixed <- c("alpha_0", "alpha_1", "beta_1")
+      fp <- c("alpha_0", "alpha_1", "beta_1")
     }
     else if(obj_param == "alpha_1") {
 
-      fixed <- c("alpha_0", "beta_0", "beta_1")
+      fp <- c("alpha_0", "beta_0", "beta_1")
     }
     else if(obj_param == "beta_1") {
 
-      fixed <- c("alpha_0", "beta_0", "alpha_1")
+      fp <- c("alpha_0", "beta_0", "alpha_1")
     }
 
-    if(exists("fixed")) {
+    if(exists("fp")) {
 
       output <- maxLik(logLik = function(params) individual_likelihood_(params, Y_col, pi_t),
                        grad = function(params) grad_LL_(params, Y_col, resp),
-                       start = individual_start, fixed = fixed)
+                       start = individual_start, fixed = fp)
 
     }
 
